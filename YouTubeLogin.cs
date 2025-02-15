@@ -1,29 +1,63 @@
 ﻿using Microsoft.Web.WebView2.WinForms;
-using System;
-using System.Collections.Generic;
-using System.Linq;
+using Microsoft.Web.WebView2.Core;
 using System.Net;
-using System.Text;
 using System.Text.Json;
-using System.Threading.Tasks;
+
 
 namespace SimpleYoutubeDownloader
 {
     public class YouTubeLogin : Form
     {
         private WebView2 webView;
+        private TextBox txtUrl;
+        private Button btnGo;
         private Button btnSalvar;
-
-        public YouTubeLogin()
+        private static bool IsPrivate;
+        public YouTubeLogin(bool isPrivate)
         {
+            IsPrivate = isPrivate;
+            this.FormClosing += YouTubeLogin_FormClosing;
             InitializeComponents();
         }
+
+        private async void YouTubeLogin_FormClosing(object sender, FormClosingEventArgs e)
+        {
+
+            try
+            {
+                // Apagar todos os cookies do WebView2
+                if (IsPrivate && webView.CoreWebView2 != null)
+                {
+                    webView.CoreWebView2.CookieManager.DeleteAllCookies();
+                }
+
+            }
+            catch (Exception ex)
+            {
+            }
+        }
+
 
         private async void InitializeComponents()
         {
             this.Width = 800;
             this.Height = 600;
             this.Text = "Login no YouTube";
+
+            // Criar barra de endereços
+            txtUrl = new TextBox()
+            {
+                Dock = DockStyle.Top,
+                Height = 30
+            };
+
+            btnGo = new Button()
+            {
+                Text = "Go",
+                Dock = DockStyle.Top,
+                Height = 30
+            };
+            btnGo.Click += BtnGo_Click;
 
             webView = new WebView2()
             {
@@ -40,38 +74,46 @@ namespace SimpleYoutubeDownloader
 
             this.Controls.Add(webView);
             this.Controls.Add(btnSalvar);
+            this.Controls.Add(btnGo);
+            this.Controls.Add(txtUrl);
 
-            // Inicializa o WebView2 e navega para a página de login do Google/YouTube
-          
             await webView.EnsureCoreWebView2Async(null);
-            webView.CoreWebView2.CookieManager.DeleteAllCookies();
-            //webView.CoreWebView2.Reload();
-            webView.CoreWebView2.Navigate("https://accounts.google.com/ServiceLogin?service=youtube");
+            webView.CoreWebView2.NavigationCompleted += WebView_NavigationCompleted;
+            webView.CoreWebView2.Navigate("https://www.youtube.com/");
+        }
+
+        private void WebView_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
+        {
+            txtUrl.Text = webView.Source.ToString();
+        }
+
+        private void BtnGo_Click(object sender, EventArgs e)
+        {
+            if (!string.IsNullOrWhiteSpace(txtUrl.Text))
+            {
+                webView.CoreWebView2.Navigate(txtUrl.Text);
+            }
         }
 
         private async void BtnSalvar_Click(object sender, EventArgs e)
         {
             try
             {
-                // Obtém os cookies do domínio youtube.com
                 var cookieManager = webView.CoreWebView2.CookieManager;
                 var cookies = await cookieManager.GetCookiesAsync("https://www.youtube.com");
-
-                // Converte os cookies para uma lista de System.Net.Cookie para facilitar o uso
                 var cookieList = cookies.Select(c => new Cookie(c.Name, c.Value, c.Path, c.Domain)).ToList();
 
-                // Serializa os cookies para JSON (você pode escolher outro formato, se preferir)
                 string json = JsonSerializer.Serialize(cookieList, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText("cookies.json", json);
 
-                MessageBox.Show("Cookies salvos com sucesso!", "Sucesso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("Cookies saved!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
-                this.DialogResult = DialogResult.OK;
+
                 this.Close();
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Erro ao salvar os cookies: " + ex.Message, "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Error: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
     }
