@@ -35,9 +35,7 @@ namespace SimpleYoutubeDownloader
         private int skipped;
         private int error;
 
-        private IList<String> processedNames;
-        private IList<String> skippeddNames;
-        private IList<String> errorNames;
+
 
 
         private TextBox txtInput;
@@ -170,8 +168,8 @@ namespace SimpleYoutubeDownloader
 
         private void BtnCancel_Click(object sender, EventArgs e)
         {
-          //  cancellationTokenSource = new CancellationTokenSource();
-           // var cancellationToken = cancellationTokenSource.Token;
+            //  cancellationTokenSource = new CancellationTokenSource();
+            // var cancellationToken = cancellationTokenSource.Token;
 
             cancellationTokenSource.Cancel();
             Log("Cancelled");
@@ -185,8 +183,8 @@ namespace SimpleYoutubeDownloader
             {
 
 
-                var watchGlobal = System.Diagnostics.Stopwatch.StartNew();
-                watchGlobal.Start();
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                watch.Start();
 
                 cancellationTokenSource = new CancellationTokenSource();
                 var cancellationToken = cancellationTokenSource.Token;
@@ -203,14 +201,12 @@ namespace SimpleYoutubeDownloader
                 skipped = 0;
                 error = 0;
 
-                processedNames = new List<string>();
-                skippeddNames = new List<string>();
-                errorNames = new List<string>();
+
 
 
                 txtLog.Clear();
 
-                
+
                 SemaphoreSlim semaphore = new SemaphoreSlim(Decimal.ToInt32(downloadsNumber.Value));
 
                 string[] urls = txtInput.Text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
@@ -249,10 +245,10 @@ namespace SimpleYoutubeDownloader
                 Log($"Completed: {processed}");
                 Log($"Skipped:  {skipped}");
                 Log($"Error:  {error}");
-                watchGlobal.Stop();
-                var elapsed = watchGlobal.ElapsedMilliseconds;
-                Log($"Elapsed Time: {(decimal)(elapsed / 1000)} seconds");
-                Log($"Avg speed: {(decimal)((processed * 60) / ((elapsed / 1000)+1))} vídeos per minute");
+                watch.Stop();
+                var elapsed = (decimal)(1 + (watch.ElapsedMilliseconds) / 1000);
+                Log($"Elapsed Time: {(elapsed)} seconds");
+                Log($"Avg speed: {(decimal)((processed * 60) / (elapsed))} vídeos per minute");
             }
             catch (Exception ex)
             {
@@ -293,7 +289,6 @@ namespace SimpleYoutubeDownloader
             catch (Exception ex)
             {
                 Log($"Processing error {url}: {ex.Message}");
-                errorNames.Add(ex.Message);
                 error++;
 
             }
@@ -305,10 +300,10 @@ namespace SimpleYoutubeDownloader
 
         private async Task DownloadVideoOrAudioAsync(YoutubeClient youtube, string videoTitle, string url, string fileExt, CancellationToken cancellationToken, SemaphoreSlim semaphore)
         {
-            var watchDownload = System.Diagnostics.Stopwatch.StartNew();
-            watchDownload.Start();
+
             try
             {
+                var watch = System.Diagnostics.Stopwatch.StartNew();
                 await semaphore.WaitAsync();
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -317,23 +312,23 @@ namespace SimpleYoutubeDownloader
                 if (File.Exists(outputPath))
                 {
                     Log("Skipped: " + videoTitle + ", file already exists");
-                    skippeddNames.Add(videoTitle);
                     skipped++;
                     return;
                 }
 
                 Log("Started: " + videoTitle);
+                var beforeTimer = watch.ElapsedMilliseconds;
                 await youtube.Videos.DownloadAsync(url, outputPath, o => o
                 .SetPreset(ConversionPreset.UltraFast), null, cancellationToken);
-                Log($"{(decimal)watchDownload.ElapsedMilliseconds / 1000} seconds: {videoTitle}, Completed");
-                processedNames.Add(videoTitle);
+                var afterTimer = watch.ElapsedMilliseconds;
+                Log($"{(decimal)(afterTimer-beforeTimer)/1000}s: {videoTitle} completed");
                 processed++;
 
             }
             catch (Exception ex)
             {
                 Log("Error: " + videoTitle);
-                errorNames.Add(videoTitle);
+
                 error++;
                 Log(ex.Message);
             }
