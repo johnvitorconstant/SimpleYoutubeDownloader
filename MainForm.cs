@@ -1,144 +1,142 @@
-﻿using SimpleYoutubeDownloader;
+﻿using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
 using YoutubeExplode;
 using YoutubeExplode.Common;
 using YoutubeExplode.Converter;
 
+namespace SimpleYoutubeDownloader;
+
 public class MainForm : Form
 {
-   
     public MainForm(bool isPrivate)
     {
+
         // isPrivate = isPrivate;
         InitializeComponents(isPrivate);
         try
         {
-           IsPrivate = isPrivate;
-            if (!Directory.Exists(DownloadFolder))
-            {
-                Directory.CreateDirectory(DownloadFolder);
-            }
+            _isPrivate = isPrivate;
+            if (!Directory.Exists(DownloadFolder)) Directory.CreateDirectory(DownloadFolder);
         }
         catch (Exception ex)
         {
             Log($"{ex.Message}");
         }
-
     }
 
 
     private void InitializeComponents(bool isPrivate)
     {
+        Text = @"Simple Youtube Downloader";
+        Width = 800;
+        Height = 600;
+        StartPosition = FormStartPosition.CenterScreen;
 
-        this.Text = "Simple Youtube Downloader";
-        this.Width = 800;
-        this.Height = 600;
-        this.StartPosition = FormStartPosition.CenterScreen;
-
-        Label lblInstructions = new Label();
-        lblInstructions.Text = "Paste links here:";
+        var lblInstructions = new Label();
+        lblInstructions.Text = @"Paste links here:";
         lblInstructions.AutoSize = true;
         lblInstructions.Top = 10;
         lblInstructions.Left = 10;
-        this.Controls.Add(lblInstructions);
+        Controls.Add(lblInstructions);
 
-        txtInput = new TextBox();
-        txtInput.Multiline = true;
-        txtInput.ScrollBars = ScrollBars.Vertical;
-        txtInput.Width = 760;
-        txtInput.Height = 200;
-        txtInput.Top = lblInstructions.Bottom + 5;
-        txtInput.Left = 10;
-        this.Controls.Add(txtInput);
+        _txtInput = new TextBox();
+        _txtInput.Multiline = true;
+        _txtInput.ScrollBars = ScrollBars.Vertical;
+        _txtInput.Width = 760;
+        _txtInput.Height = 200;
+        _txtInput.Top = lblInstructions.Bottom + 5;
+        _txtInput.Left = 10;
+        Controls.Add(_txtInput);
 
-        int spacing = 0;
-        rbMP3 = new RadioButton();
-        rbMP3.Text = "mp3";
-        rbMP3.Top = txtInput.Bottom + 10;
-        rbMP3.Left = 10;
-        this.Controls.Add(rbMP3);
+        var spacing = 1;
+        _rbMp3 = new RadioButton();
+        _rbMp3.Text = @"mp3";
+        _rbMp3.Top = _txtInput.Bottom + 10;
+        _rbMp3.Left = 10;
+        Controls.Add(_rbMp3);
 
-        rbMP4 = new RadioButton();
-        rbMP4.Text = "mp4";
-        rbMP4.Top = txtInput.Bottom + 10;
-        rbMP4.Left = rbMP3.Left + rbMP3.Width + spacing;
-        rbMP4.Checked = true;
-        this.Controls.Add(rbMP4);
+        _rbMp4 = new RadioButton();
+        _rbMp4.Text = @"mp4";
+        _rbMp4.Top = _txtInput.Bottom + 10;
+        _rbMp4.Left = _rbMp3.Left + _rbMp3.Width + spacing;
+        _rbMp4.Checked = true;
+        Controls.Add(_rbMp4);
 
-        rbWEBM = new RadioButton();
-        rbWEBM.Text = "webm";
-        rbWEBM.Top = txtInput.Bottom + 10;
-        rbWEBM.Left = rbMP4.Left + rbMP4.Width + spacing;
-        this.Controls.Add(rbWEBM);
+        _rbWebm = new RadioButton();
+        _rbWebm.Text = @"webm";
+        _rbWebm.Top = _txtInput.Bottom + 10;
+        _rbWebm.Left = _rbMp4.Left + _rbMp4.Width + spacing;
+        Controls.Add(_rbWebm);
 
-        downloadsNumber = new NumericUpDown();
-        downloadsNumber.Minimum = 1;
-        downloadsNumber.Maximum = 100;
-        downloadsNumber.Value = 3;
-        downloadsNumber.Top = txtInput.Bottom + 10;
-        downloadsNumber.Left = rbWEBM.Right;
-        this.Controls.Add(downloadsNumber);
+        _downloadsNumber = new NumericUpDown();
+        _downloadsNumber.Minimum = 1;
+        _downloadsNumber.Maximum = 100;
+        _downloadsNumber.Value = 3;
+        _downloadsNumber.Top = _txtInput.Bottom + 10;
+        _downloadsNumber.Left = _rbWebm.Right;
+        Controls.Add(_downloadsNumber);
 
-        btnDownload = new Button();
-        btnDownload.Text = "Download";
-        btnDownload.Top = rbMP3.Bottom + 10;
-        btnDownload.Left = 10;
-        btnDownload.Click += BtnDownload_Click;
-        this.Controls.Add(btnDownload);
+        _btnDownload = new Button();
+        _btnDownload.Text = @"Download";
+        _btnDownload.Top = _rbMp3.Bottom + 10;
+        _btnDownload.Left = 10;
+        _btnDownload.Click += BtnDownload_Click;
+        Controls.Add(_btnDownload);
 
-        btnCancelar = new Button();
-        btnCancelar.Text = "Cancelar";
-        btnCancelar.Top = rbMP3.Bottom + 10;
-        btnCancelar.Left = btnDownload.Right;
-        btnCancelar.Click += BtnCancel_Click;
-        this.Controls.Add(btnCancelar);
+        _btnCancelar = new Button();
+        _btnCancelar.Text = @"Cancel";
+        _btnCancelar.Top = _rbMp3.Bottom + 10;
+        _btnCancelar.Left = _btnDownload.Right;
+        _btnCancelar.Click += BtnCancel_Click;
+        Controls.Add(_btnCancelar);
 
-        Button btnLogin = new Button();
-        btnLogin.Text = "Fazer Login";
-        btnLogin.Top = rbMP3.Bottom + 10;
-        btnLogin.Left = btnCancelar.Right;
+        var btnLogin = new Button();
+        btnLogin.Text = @"Login";
+        btnLogin.Top = _rbMp3.Bottom + 10;
+        btnLogin.Left = _btnCancelar.Right;
         btnLogin.Click += BtnLogin_Click;
-        this.Controls.Add(btnLogin);
+        Controls.Add(btnLogin);
 
-        txtLog = new TextBox();
-        txtLog.Multiline = true;
-        txtLog.ScrollBars = ScrollBars.Vertical;
-        txtLog.Width = 760;
-        txtLog.Height = 250;
-        txtLog.Top = btnDownload.Bottom + 10;
-        txtLog.Left = 10;
-        txtLog.ReadOnly = true;
-        txtLog.Anchor = (AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom);
-        this.Controls.Add(txtLog);
+
+        _txtLog = new TextBox();
+        _txtLog.Multiline = true;
+        _txtLog.ScrollBars = ScrollBars.Vertical;
+        _txtLog.Width = 760;
+        _txtLog.Height = 250;
+        _txtLog.Top = _btnDownload.Bottom + 10;
+        _txtLog.Left = 10;
+        _txtLog.ReadOnly = true;
+        _txtLog.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+        Controls.Add(_txtLog);
     }
 
 
     private static readonly string DownloadFolder = "downloaded";
-    public static bool IsPrivate;
+    private static bool _isPrivate;
 
-    private CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+    private CancellationTokenSource _cancellationTokenSource = new();
 
-    private int Processed;
-    private int Skipped;
-    private int Error;
+    private int _processed;
+    private int _skipped;
+    private int _error;
 
-    private TextBox txtInput;
-    private NumericUpDown downloadsNumber;
-    private RadioButton rbMP3;
-    private RadioButton rbMP4;
-    private RadioButton rbWEBM;
-    private Button btnDownload;
-    private Button btnCancelar;
-    private TextBox txtLog;
+    private TextBox? _txtInput;
+    private NumericUpDown? _downloadsNumber;
+    private RadioButton? _rbMp3;
+    private RadioButton? _rbMp4;
+    private RadioButton? _rbWebm;
+    private Button? _btnDownload;
+    private Button? _btnCancelar;
+    private TextBox? _txtLog;
 
-
+  
 
 
     private void BtnLogin_Click(object sender, EventArgs e)
     {
-        Console.WriteLine(IsPrivate);
-        using (var loginForm = new YouTubeLogin(IsPrivate))
+        Console.WriteLine(_isPrivate);
+        using (var loginForm = new YouTubeLogin(_isPrivate))
         {
             if (loginForm.ShowDialog() == DialogResult.OK)
             {
@@ -156,49 +154,43 @@ public class MainForm : Form
         //  cancellationTokenSource = new CancellationTokenSource();
         // var cancellationToken = cancellationTokenSource.Token;
 
-        cancellationTokenSource.Cancel();
+        _cancellationTokenSource.Cancel();
         Log("Cancelled");
     }
-
 
 
     private async void BtnDownload_Click(object sender, EventArgs e)
     {
         try
         {
-
-      
-            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var watch = Stopwatch.StartNew();
             watch.Start();
 
-            cancellationTokenSource = new CancellationTokenSource();
-            var cancellationToken = cancellationTokenSource.Token;
+            _cancellationTokenSource = new CancellationTokenSource();
+            var cancellationToken = _cancellationTokenSource.Token;
 
 
-            string fileType =
-                      rbMP3.Checked ? "mp3" :
-                      rbMP4.Checked ? "mp4" :
-                      rbWEBM.Checked ? "webm" : "mp3";
+            var fileType =
+                _rbMp3.Checked ? "mp3" :
+                _rbMp4.Checked ? "mp4" :
+                _rbWebm.Checked ? "webm" : "mp3";
 
 
-            btnDownload.Enabled = false;
-            Processed = 0;
-            Skipped = 0;
-            Error = 0;
+            _btnDownload.Enabled = false;
+            _processed = 0;
+            _skipped = 0;
+            _error = 0;
+
+            _txtLog.Clear();
 
 
+            var semaphore = new SemaphoreSlim(decimal.ToInt32(_downloadsNumber.Value));
 
-
-            txtLog.Clear();
-
-
-            SemaphoreSlim semaphore = new SemaphoreSlim(Decimal.ToInt32(downloadsNumber.Value));
-
-            string[] urls = txtInput.Text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            var urls = _txtInput.Text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
             if (urls.Length == 0)
             {
                 Log("Please insert one or more youtube links");
-                btnDownload.Enabled = true;
+                _btnDownload.Enabled = true;
                 return;
             }
 
@@ -207,32 +199,29 @@ public class MainForm : Form
                 youtube = new YoutubeClient();
             }
 
-            var tasks = urls.Select(url => ProcessUrlAsync(youtube, url, fileType, cancellationToken, semaphore)).ToArray();
+            var tasks = urls.Select(url => ProcessUrlAsync(youtube, url, fileType, cancellationToken, semaphore))
+                .ToArray();
             await Task.WhenAll(tasks);
-            btnDownload.Enabled = true;
+            _btnDownload.Enabled = true;
 
             Log("Download(s) finalizado(s).");
-            Log($"Completed: {Processed}");
-            Log($"Skipped:  {Skipped}");
-            Log($"Error:  {Error}");
+            Log($"Completed: {_processed}");
+            Log($"Skipped:  {_skipped}");
+            Log($"Error:  {_error}");
             watch.Stop();
-            var elapsed = (decimal)(1 + (watch.ElapsedMilliseconds) / 1000);
-            Log($"Elapsed Time: {(elapsed)} seconds");
-            Log($"Avg speed: {(decimal)((Processed * 60) / (elapsed))} vídeos per minute");
+            var elapsed = (decimal)(1 + watch.ElapsedMilliseconds / 1000);
+            Log($"Elapsed Time: {elapsed} seconds");
+            Log($"Avg speed: {_processed * 60 / elapsed} vídeos per minute");
         }
         catch (Exception ex)
         {
             Log($"{ex.Message}");
-
         }
-
-
-
     }
 
-    private async Task ProcessUrlAsync(YoutubeClient youtube, string url, string fileType, CancellationToken cancellationToken, SemaphoreSlim semaphore)
+    private async Task ProcessUrlAsync(YoutubeClient youtube, string url, string fileType,
+        CancellationToken cancellationToken, SemaphoreSlim semaphore)
     {
-
         url = url.Replace("https://youtu.be/", "https://www.youtube.com/watch?v=");
 
 
@@ -242,29 +231,27 @@ public class MainForm : Form
 
             if (IsPlaylistUrl(url))
             {
-
-
-                List<Cookie>? cookies = new List<Cookie>();
                 IReadOnlyList<YoutubeExplode.Playlists.PlaylistVideo> videos;
                 if (File.Exists("cookies.json"))
                 {
-                    string json = File.ReadAllText("cookies.json");
-                    cookies = JsonSerializer.Deserialize<List<Cookie>>(json);
+                    var json = await File.ReadAllTextAsync("cookies.json", cancellationToken);
+                    List<Cookie>? cookies = JsonSerializer.Deserialize<List<Cookie>>(json);
+                    Debug.Assert(cookies != null, nameof(cookies) + " != null");
                     var youtubeWCookies = new YoutubeClient(cookies);
-                    videos = await youtubeWCookies.Playlists.GetVideosAsync(url);
+                    videos = await youtubeWCookies.Playlists.GetVideosAsync(url, cancellationToken);
                 }
                 else
                 {
-                    videos = await youtube.Playlists.GetVideosAsync(url);
+                    videos = await youtube.Playlists.GetVideosAsync(url, cancellationToken);
                 }
 
 
                 Log($"Processing playlist: {url}");
 
 
-
                 // Processa cada vídeo da playlist (em paralelo)
-                var videoTasks = videos.Select(video => DownloadVideoOrAudioAsync(youtube, video.Title, video.Url, fileType, cancellationToken, semaphore));
+                var videoTasks = videos.Select(video =>
+                    DownloadVideoOrAudioAsync(youtube, video.Title, video.Url, fileType, cancellationToken, semaphore));
                 await Task.WhenAll(videoTasks);
             }
             else
@@ -272,13 +259,11 @@ public class MainForm : Form
                 var video = await youtube.Videos.GetAsync(url);
                 await DownloadVideoOrAudioAsync(youtube, video.Title, url, fileType, cancellationToken, semaphore);
             }
-
         }
         catch (Exception ex)
         {
             Log($"Processing error {url}: {ex.Message}");
-            Error++;
-
+            _error++;
         }
         finally
         {
@@ -286,44 +271,43 @@ public class MainForm : Form
         }
     }
 
-    private async Task DownloadVideoOrAudioAsync(YoutubeClient youtube, string videoTitle, string url, string fileExt, CancellationToken cancellationToken, SemaphoreSlim semaphore)
+    private async Task DownloadVideoOrAudioAsync(YoutubeClient youtube, string videoTitle, string url, string fileExt,
+        CancellationToken cancellationToken, SemaphoreSlim semaphore)
     {
-
         try
         {
             var watch = System.Diagnostics.Stopwatch.StartNew();
             await semaphore.WaitAsync();
             cancellationToken.ThrowIfCancellationRequested();
 
-            string safeTitle = MakeSafeFileName(videoTitle);
-            string outputPath = Path.Combine(DownloadFolder, $"{safeTitle}.{fileExt}");
+            var safeTitle = MakeSafeFileName(videoTitle);
+            var outputPath = Path.Combine(DownloadFolder, $"{safeTitle}.{fileExt}");
             if (File.Exists(outputPath))
             {
                 Log("Skipped: " + videoTitle + ", file already exists");
-                Skipped++;
+                _skipped++;
                 return;
             }
 
             Log("Started: " + videoTitle);
             var beforeTimer = watch.ElapsedMilliseconds;
             await youtube.Videos.DownloadAsync(url, outputPath, o => o
-            .SetPreset(ConversionPreset.UltraFast), null, cancellationToken);
+                .SetPreset(ConversionPreset.UltraFast)
+                .SetFFmpegPath("ffmpeg.exe"), null, cancellationToken);
             var afterTimer = watch.ElapsedMilliseconds;
             Log($"{(decimal)(afterTimer - beforeTimer) / 1000}s: {videoTitle} completed");
-            Processed++;
-
+            _processed++;
         }
         catch (Exception ex)
         {
             Log("Error: " + videoTitle);
 
-            Error++;
+            _error++;
             Log(ex.Message);
         }
         finally
         {
             semaphore.Release();
-
         }
     }
 
@@ -334,28 +318,15 @@ public class MainForm : Form
 
     private string MakeSafeFileName(string title)
     {
-        foreach (char c in Path.GetInvalidFileNameChars())
-        {
-            title = title.Replace(c, '_');
-        }
+        foreach (var c in Path.GetInvalidFileNameChars()) title = title.Replace(c, '_');
         return title;
     }
 
     private void Log(string message)
     {
-        if (txtLog.InvokeRequired)
-        {
-            txtLog.BeginInvoke((MethodInvoker)delegate
-            {
-                txtLog.AppendText(message + Environment.NewLine);
-            });
-        }
+        if (_txtLog.InvokeRequired)
+            _txtLog.BeginInvoke((MethodInvoker)delegate { _txtLog.AppendText(message + Environment.NewLine); });
         else
-        {
-            txtLog.AppendText(message + Environment.NewLine);
-        }
+            _txtLog.AppendText(message + Environment.NewLine);
     }
-
-
 }
-
