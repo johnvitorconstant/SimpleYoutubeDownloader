@@ -365,6 +365,5 @@ FodyWeavers.xsd
 
 ffmpeg.exe
 
-# Saída do app (não versionar mídia)
-downloaded/*.mp4
-downloaded/*.webm
+# Saída do app (pasta de downloads — não versionar)
+downloaded/
