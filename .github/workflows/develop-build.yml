@@ -1,0 +1,67 @@
+# Build da branch develop e publica o pacote para download (Artifacts + Release pré-release).
+name: Develop build
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: develop-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Publish (win-x64, self-contained)
+        run: >
+          dotnet publish SimpleYoutubeDownloader.csproj
+          -c Release
+          -o "${{ github.workspace }}/publish"
+
+      - name: Zip output
+        shell: pwsh
+        run: |
+          $zip = "SimpleYoutubeDownloader-develop-win-x64.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path "publish/*" -DestinationPath $zip -CompressionLevel Optimal
+          Get-Item $zip | Format-List Name, Length
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SimpleYoutubeDownloader-develop-win-x64
+          path: SimpleYoutubeDownloader-develop-win-x64.zip
+
+      - name: Create prerelease with zip (download no GitHub)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: develop-${{ github.run_id }}
+          name: "Develop build ${{ github.run_id }}"
+          body: |
+            Build automático da branch **develop** (Windows x64, self-contained).
+
+            - **Commit:** `${{ github.sha }}`
+            - **Disparado por:** @${{ github.actor }}
+
+            Inclui `SimpleYoutubeDownloader.exe` e dependências nativas (WebView2 loader, etc.).  
+            O **FFmpeg** (`ffmpeg.exe`) não está no repositório: copie manualmente para a mesma pasta do `.exe` ao rodar (ver README).
+
+            Também é possível baixar o mesmo zip em **Actions → este workflow run → Artifacts**.
+          files: SimpleYoutubeDownloader-develop-win-x64.zip
+          prerelease: true
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

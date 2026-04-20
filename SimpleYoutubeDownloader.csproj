@@ -14,10 +14,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <None Remove="ffmpeg.exe" />
-    </ItemGroup>
-
-    <ItemGroup>
         <Content Include="icone.ico" />
         <EmbeddedResource Include="appsettings.json" />
 
@@ -32,11 +28,11 @@
         <PackageReference Include="YoutubeExplode.Converter" Version="6.5.7" />
     </ItemGroup>
 
-
-    <ItemGroup>
-        <Resource Include="ffmpeg.exe">
-            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-        </Resource>
+    <!-- ffmpeg não fica no repositório; se existir localmente, copia para a saída do build -->
+    <ItemGroup Condition="Exists('ffmpeg.exe')">
+        <None Include="ffmpeg.exe">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
     </ItemGroup>
 
     <ItemGroup>
@@ -44,5 +40,12 @@
             <CopyToOutputDirectory>Always</CopyToOutputDirectory>
         </None>
     </ItemGroup>
+
+    <!-- WebView2 inclui WPF por padrão em net5+; este app só usa WinForms — remover evita MSB3277 (WindowsBase 4 vs 5). -->
+    <Target Name="RemoveWebView2WpfReference" BeforeTargets="ResolveAssemblyReferences">
+        <ItemGroup>
+            <Reference Remove="@(Reference)" Condition="$([System.String]::Copy('%(Identity)').EndsWith('Microsoft.Web.WebView2.Wpf.dll'))" />
+        </ItemGroup>
+    </Target>
 
 </Project>

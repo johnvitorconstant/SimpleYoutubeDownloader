@@ -1,6 +1,8 @@
 ﻿using System.Diagnostics;
+using System.Drawing;
 using System.Net;
 using System.Text.Json;
+using System.Windows.Forms;
 using YoutubeExplode;
 using YoutubeExplode.Common;
 using YoutubeExplode.Converter;
@@ -11,8 +13,6 @@ public class MainForm : Form
 {
     public MainForm(bool isPrivate)
     {
-
-        // isPrivate = isPrivate;
         InitializeComponents(isPrivate);
         try
         {
@@ -28,87 +28,257 @@ public class MainForm : Form
 
     private void InitializeComponents(bool isPrivate)
     {
-        Text = @"Simple Youtube Downloader";
-        Width = 800;
-        Height = 600;
+        _ = isPrivate;
+
+        UiTheme.StyleForm(this);
+        Text = "Simple YouTube Downloader";
+        MinimumSize = new Size(760, 560);
+        Size = new Size(940, 720);
         StartPosition = FormStartPosition.CenterScreen;
+        DoubleBuffered = true;
 
-        var lblInstructions = new Label();
-        lblInstructions.Text = @"Paste links here:";
-        lblInstructions.AutoSize = true;
-        lblInstructions.Top = 10;
-        lblInstructions.Left = 10;
-        Controls.Add(lblInstructions);
+        // Não definir Panel1MinSize/Panel2MinSize aqui: com altura 0 o SplitContainer recalcula
+        // SplitterDistance e lança InvalidOperationException (app fecha sem abrir janela).
+        var split = new SplitContainer
+        {
+            Dock = DockStyle.Fill,
+            Orientation = Orientation.Horizontal,
+            SplitterWidth = 6,
+            BackColor = UiTheme.Background,
+            SplitterIncrement = 12
+        };
+        split.Panel1.BackColor = UiTheme.Background;
+        split.Panel2.BackColor = UiTheme.Background;
 
-        _txtInput = new TextBox();
-        _txtInput.Multiline = true;
-        _txtInput.ScrollBars = ScrollBars.Vertical;
-        _txtInput.Width = 760;
-        _txtInput.Height = 200;
-        _txtInput.Top = lblInstructions.Bottom + 5;
-        _txtInput.Left = 10;
-        Controls.Add(_txtInput);
+        var topLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 6,
+            Padding = new Padding(16, 14, 16, 12)
+        };
+        topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        topLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        topLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        topLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        topLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+        topLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        topLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-        var spacing = 1;
-        _rbMp3 = new RadioButton();
-        _rbMp3.Text = @"mp3";
-        _rbMp3.Top = _txtInput.Bottom + 10;
-        _rbMp3.Left = 10;
-        Controls.Add(_rbMp3);
+        var lblTitle = new Label
+        {
+            Text = "Simple YouTube Downloader",
+            Font = UiTheme.TitleFont,
+            AutoSize = true,
+            Margin = new Padding(0, 0, 0, 2)
+        };
+        UiTheme.StyleLabel(lblTitle);
 
-        _rbMp4 = new RadioButton();
-        _rbMp4.Text = @"mp4";
-        _rbMp4.Top = _txtInput.Bottom + 10;
-        _rbMp4.Left = _rbMp3.Left + _rbMp3.Width + spacing;
-        _rbMp4.Checked = true;
-        Controls.Add(_rbMp4);
+        var lblSubtitle = new Label
+        {
+            Text = "Baixe áudio ou vídeo a partir de links ou playlists. Os arquivos são salvos na pasta \"downloaded\".",
+            AutoSize = true,
+            MaximumSize = new Size(880, 0),
+            Margin = new Padding(0, 0, 0, 10)
+        };
+        UiTheme.StyleLabel(lblSubtitle, muted: true);
 
-        _rbWebm = new RadioButton();
-        _rbWebm.Text = @"webm";
-        _rbWebm.Top = _txtInput.Bottom + 10;
-        _rbWebm.Left = _rbMp4.Left + _rbMp4.Width + spacing;
-        Controls.Add(_rbWebm);
+        var lblLinks = new Label
+        {
+            Text = "Links (um por linha)",
+            AutoSize = true,
+            Margin = new Padding(0, 0, 0, 6)
+        };
+        UiTheme.StyleLabel(lblLinks);
 
-        _downloadsNumber = new NumericUpDown();
-        _downloadsNumber.Minimum = 1;
-        _downloadsNumber.Maximum = 100;
-        _downloadsNumber.Value = 3;
-        _downloadsNumber.Top = _txtInput.Bottom + 10;
-        _downloadsNumber.Left = _rbWebm.Right;
-        Controls.Add(_downloadsNumber);
+        _txtInput = new TextBox
+        {
+            Multiline = true,
+            ScrollBars = ScrollBars.Vertical,
+            AcceptsReturn = true,
+            AcceptsTab = false,
+            WordWrap = false,
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 0, 0, 12),
+            PlaceholderText = "https://www.youtube.com/watch?v=…\nhttps://youtu.be/…\nhttps://www.youtube.com/playlist?list=…"
+        };
+        UiTheme.StyleTextBox(_txtInput);
 
-        _btnDownload = new Button();
-        _btnDownload.Text = @"Download";
-        _btnDownload.Top = _rbMp3.Bottom + 10;
-        _btnDownload.Left = 10;
+        var optionsRow = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            Margin = new Padding(0, 0, 0, 12),
+            Height = 44
+        };
+        optionsRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        optionsRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+        var flowFormats = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            BackColor = Color.Transparent,
+            Dock = DockStyle.Fill,
+            Padding = new Padding(0, 4, 0, 0)
+        };
+
+        var lblFormat = new Label { Text = "Formato:", AutoSize = true, Margin = new Padding(0, 8, 10, 0) };
+        UiTheme.StyleLabel(lblFormat, muted: true);
+        flowFormats.Controls.Add(lblFormat);
+
+        _formatCombo = new ComboBox
+        {
+            Width = 160,
+            Margin = new Padding(0, 2, 0, 0)
+        };
+        UiTheme.StyleComboBox(_formatCombo);
+        _formatCombo.Items.AddRange(new[] { "MP3", "MP4", "WebM" });
+        _formatCombo.SelectedItem = "MP4";
+        flowFormats.Controls.Add(_formatCombo);
+
+        _lblUrlKind = new Label { Text = "—" };
+        UiTheme.StyleUrlKindTag(_lblUrlKind);
+        flowFormats.Controls.Add(_lblUrlKind);
+
+        _txtInput.TextChanged += (_, _) => UpdateUrlKindTag();
+
+        var parallelPanel = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoSize = true,
+            Anchor = AnchorStyles.Right,
+            BackColor = Color.Transparent,
+            Padding = new Padding(0, 4, 0, 0)
+        };
+        var lblParallel = new Label { Text = "Downloads paralelos:", AutoSize = true, Margin = new Padding(0, 6, 8, 0) };
+        UiTheme.StyleLabel(lblParallel, muted: true);
+        _downloadsNumber = new NumericUpDown
+        {
+            Minimum = 1,
+            Maximum = 100,
+            Value = 3,
+            Width = 64,
+            Margin = new Padding(0, 2, 0, 0)
+        };
+        UiTheme.StyleNumeric(_downloadsNumber);
+        parallelPanel.Controls.Add(lblParallel);
+        parallelPanel.Controls.Add(_downloadsNumber);
+
+        optionsRow.Controls.Add(flowFormats, 0, 0);
+        optionsRow.Controls.Add(parallelPanel, 1, 0);
+
+        var toolbarBg = UiTheme.SurfaceElevated;
+        var buttonRow = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Dock = DockStyle.Fill,
+            BackColor = toolbarBg,
+            Padding = new Padding(14, 12, 14, 12),
+            Margin = new Padding(0, 4, 0, 0)
+        };
+
+        _btnDownload = new Button { Text = "Baixar" };
+        UiTheme.ApplyBootstrapPrimary(_btnDownload);
         _btnDownload.Click += BtnDownload_Click;
-        Controls.Add(_btnDownload);
 
-        _btnCancelar = new Button();
-        _btnCancelar.Text = @"Cancel";
-        _btnCancelar.Top = _rbMp3.Bottom + 10;
-        _btnCancelar.Left = _btnDownload.Right;
+        _btnCancelar = new Button { Text = "Cancelar" };
+        UiTheme.ApplyBootstrapOutlineDanger(_btnCancelar, toolbarBg);
         _btnCancelar.Click += BtnCancel_Click;
-        Controls.Add(_btnCancelar);
 
-        var btnLogin = new Button();
-        btnLogin.Text = @"Login";
-        btnLogin.Top = _rbMp3.Bottom + 10;
-        btnLogin.Left = _btnCancelar.Right;
+        var btnLogin = new Button { Text = "Entrar no YouTube" };
+        UiTheme.ApplyBootstrapOutlineSecondary(btnLogin, toolbarBg);
         btnLogin.Click += BtnLogin_Click;
-        Controls.Add(btnLogin);
 
+        var btnOpenOutput = new Button { Text = "Abrir pasta de saída" };
+        UiTheme.ApplyBootstrapLink(btnOpenOutput, toolbarBg);
+        btnOpenOutput.Click += BtnOpenOutputFolder_Click;
 
-        _txtLog = new TextBox();
-        _txtLog.Multiline = true;
-        _txtLog.ScrollBars = ScrollBars.Vertical;
-        _txtLog.Width = 760;
-        _txtLog.Height = 250;
-        _txtLog.Top = _btnDownload.Bottom + 10;
-        _txtLog.Left = 10;
-        _txtLog.ReadOnly = true;
-        _txtLog.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
-        Controls.Add(_txtLog);
+        buttonRow.Controls.Add(_btnDownload);
+        buttonRow.Controls.Add(_btnCancelar);
+        buttonRow.Controls.Add(btnLogin);
+        buttonRow.Controls.Add(btnOpenOutput);
+
+        topLayout.Controls.Add(lblTitle, 0, 0);
+        topLayout.Controls.Add(lblSubtitle, 0, 1);
+        topLayout.Controls.Add(lblLinks, 0, 2);
+        topLayout.Controls.Add(_txtInput, 0, 3);
+        topLayout.Controls.Add(optionsRow, 0, 4);
+        topLayout.Controls.Add(buttonRow, 0, 5);
+
+        split.Panel1.Controls.Add(topLayout);
+
+        var logLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            Padding = new Padding(16, 8, 16, 14)
+        };
+        logLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        logLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        logLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+        var lblLog = new Label
+        {
+            Text = "Registro",
+            AutoSize = true,
+            Margin = new Padding(0, 0, 0, 6)
+        };
+        UiTheme.StyleLabel(lblLog, muted: true);
+
+        _txtLog = new TextBox
+        {
+            Multiline = true,
+            ScrollBars = ScrollBars.Vertical,
+            ReadOnly = true,
+            Dock = DockStyle.Fill,
+            TabStop = false
+        };
+        UiTheme.StyleTextBox(_txtLog, readOnly: true, monospace: true);
+
+        logLayout.Controls.Add(lblLog, 0, 0);
+        logLayout.Controls.Add(_txtLog, 0, 1);
+        split.Panel2.Controls.Add(logLayout);
+
+        Controls.Add(split);
+
+        UpdateUrlKindTag();
+
+        Load += (_, _) =>
+        {
+            try
+            {
+                split.SuspendLayout();
+                var h = split.ClientSize.Height;
+                if (h <= split.SplitterWidth + 80) return;
+
+                var panel2Min = Math.Min(140, Math.Max(72, h / 5));
+                var panel1Min = Math.Min(220, Math.Max(96, h / 4));
+                split.Panel2MinSize = panel2Min;
+                split.Panel1MinSize = panel1Min;
+
+                var maxDist = h - split.Panel2MinSize - split.SplitterWidth;
+                var minDist = split.Panel1MinSize;
+                if (maxDist >= minDist)
+                    split.SplitterDistance = Math.Clamp((int)(h * 0.46), minDist, maxDist);
+            }
+            catch
+            {
+                // ignored
+            }
+            finally
+            {
+                split.ResumeLayout();
+            }
+        };
     }
 
 
@@ -123,15 +293,34 @@ public class MainForm : Form
 
     private TextBox? _txtInput;
     private NumericUpDown? _downloadsNumber;
-    private RadioButton? _rbMp3;
-    private RadioButton? _rbMp4;
-    private RadioButton? _rbWebm;
+    private ComboBox? _formatCombo;
+    private Label? _lblUrlKind;
     private Button? _btnDownload;
     private Button? _btnCancelar;
     private TextBox? _txtLog;
 
   
 
+
+    private void BtnOpenOutputFolder_Click(object? sender, EventArgs e)
+    {
+        try
+        {
+            var path = Path.GetFullPath(DownloadFolder);
+            Directory.CreateDirectory(path);
+            var args = "\"" + path.Replace("\"", "") + "\"";
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = args,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            Log(ex.Message);
+        }
+    }
 
     private void BtnLogin_Click(object sender, EventArgs e)
     {
@@ -170,10 +359,8 @@ public class MainForm : Form
             var cancellationToken = _cancellationTokenSource.Token;
 
 
-            var fileType =
-                _rbMp3.Checked ? "mp3" :
-                _rbMp4.Checked ? "mp4" :
-                _rbWebm.Checked ? "webm" : "mp3";
+            var ext = (_formatCombo?.SelectedItem as string)?.ToLowerInvariant();
+            var fileType = ext is "mp3" or "mp4" or "webm" ? ext : "mp4";
 
 
             _btnDownload.Enabled = false;
@@ -314,6 +501,31 @@ public class MainForm : Form
     private bool IsPlaylistUrl(string url)
     {
         return url.Contains("playlist") || url.Contains("list=");
+    }
+
+    private static string NormalizeUrlForKindCheck(string line) =>
+        line.Trim().Replace("https://youtu.be/", "https://www.youtube.com/watch?v=", StringComparison.Ordinal);
+
+    private void UpdateUrlKindTag()
+    {
+        if (_lblUrlKind is null || _txtInput is null) return;
+
+        var lines = _txtInput.Text
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(NormalizeUrlForKindCheck)
+            .Where(s => s.Length > 0)
+            .ToList();
+
+        if (lines.Count == 0)
+        {
+            _lblUrlKind.Text = "—";
+            _lblUrlKind.ForeColor = UiTheme.TextMuted;
+            return;
+        }
+
+        var anyPlaylist = lines.Any(IsPlaylistUrl);
+        _lblUrlKind.Text = anyPlaylist ? "Lista" : "Simples";
+        _lblUrlKind.ForeColor = anyPlaylist ? UiTheme.BsLink : UiTheme.TextMuted;
     }
 
     private string MakeSafeFileName(string title)
