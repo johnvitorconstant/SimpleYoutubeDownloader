@@ -31,6 +31,22 @@ jobs:
           -c Release
           -o "${{ github.workspace }}/publish"
 
+      # FFmpeg não fica no Git; incluímos no zip via build oficial (BtbN, LGPL).
+      - name: Add FFmpeg to publish folder
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ffUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip"
+          Invoke-WebRequest -Uri $ffUrl -OutFile "ffmpeg-win64.zip" -UseBasicParsing
+          Expand-Archive "ffmpeg-win64.zip" -DestinationPath "ffmpeg_pkg" -Force
+          $root = Get-ChildItem "ffmpeg_pkg" -Directory | Select-Object -First 1
+          if (-not $root) { throw "FFmpeg zip: pasta raiz não encontrada" }
+          $bin = Join-Path $root.FullName "bin"
+          if (-not (Test-Path $bin)) { throw "FFmpeg zip: pasta bin não encontrada" }
+          Copy-Item -Path (Join-Path $bin "*") -Destination "publish" -Force
+          if (-not (Test-Path "publish/ffmpeg.exe")) { throw "ffmpeg.exe não foi copiado para publish/" }
+          Remove-Item "ffmpeg-win64.zip", "ffmpeg_pkg" -Recurse -Force
+
       - name: Zip output
         shell: pwsh
         run: |
@@ -56,8 +72,9 @@ jobs:
             - **Commit:** `${{ github.sha }}`
             - **Disparado por:** @${{ github.actor }}
 
-            Inclui `SimpleYoutubeDownloader.exe` e dependências nativas (WebView2 loader, etc.).  
-            O **FFmpeg** (`ffmpeg.exe`) não está no repositório: copie manualmente para a mesma pasta do `.exe` ao rodar (ver README).
+            Inclui `SimpleYoutubeDownloader.exe`, dependências nativas (WebView2 loader, etc.) e **`ffmpeg.exe`** (e DLLs do mesmo `bin`, se existirem), obtidos no build a partir do [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) (pacote **win64-lgpl**). O FFmpeg **não** está versionado no Git — só entra neste zip na CI.
+
+            Para builds feitos **na tua máquina**, continua a ser preciso copiar o `ffmpeg.exe` para a pasta de saída (ver README).
 
             Também é possível baixar o mesmo zip em **Actions → este workflow run → Artifacts**.
           files: SimpleYoutubeDownloader-develop-win-x64.zip

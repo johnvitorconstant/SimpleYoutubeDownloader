@@ -6,7 +6,7 @@ Aplicativo **Windows Forms** (.NET 8) para baixar áudio ou vídeo do YouTube a 
 
 - **Windows 10/11** (64 bits)
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (para compilar)
-- **ffmpeg.exe** na pasta do executável ou na raiz do projeto em desenvolvimento — o [YoutubeExplode.Converter](https://github.com/Tyrrrz/YoutubeExplode) usa o FFmpeg para mux/encode (por exemplo MP3). O binário **não** vem neste repositório; baixe uma build oficial em [ffmpeg.org](https://ffmpeg.org/download.html) e coloque o `ffmpeg.exe` ao lado do `.exe` publicado.
+- **ffmpeg.exe** na pasta do executável ou na raiz do projeto em desenvolvimento — o [YoutubeExplode.Converter](https://github.com/Tyrrrz/YoutubeExplode) usa o FFmpeg para mux/encode (por exemplo MP3). O binário **não** está versionado no Git; em desenvolvimento ou build local, baixe uma build oficial em [ffmpeg.org](https://ffmpeg.org/download.html) e coloque o `ffmpeg.exe` ao lado do `.exe`. O **zip gerado pelo GitHub Actions** na branch `develop` já inclui o FFmpeg (baixado na CI a partir do [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), pacote win64-lgpl).
 
 ## Como usar
 
@@ -40,7 +40,7 @@ Publicar um único executável (conforme o `.csproj`, inclui `win-x64` e single 
 dotnet publish -c Release
 ```
 
-O resultado fica em `bin\Release\net8.0-windows\win-x64\publish\` (caminhos podem variar conforme configuração). Lembre-se de copiar **`ffmpeg.exe`** para a mesma pasta do `.exe` antes de distribuir.
+O resultado fica em `bin\Release\net8.0-windows\win-x64\publish\` (caminhos podem variar conforme configuração). Em publish **local**, copie **`ffmpeg.exe`** para a mesma pasta do `.exe` antes de distribuir (o zip da CI em `develop` já inclui o FFmpeg).
 
 ## Tecnologias principais
 
