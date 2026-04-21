@@ -9,7 +9,6 @@
 *.user
 *.userosscache
 *.sln.docstates
-*.cookies.json
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
@@ -363,7 +362,18 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
+# ---------------------------------------------------------------------------
+# SimpleYoutubeDownloader — artefactos locais, sessão e builds manuais
+# ---------------------------------------------------------------------------
 ffmpeg.exe
-
-# Saída do app (pasta de downloads — não versionar)
 downloaded/
+logs/
+
+# Sessão / export de cookies (nunca versionar texto plano)
+*.cookies.json
+cookies.json
+cookies.txt
+
+# Pastas de saída de publish/build fora de bin/obj (ex.: dotnet publish -o outbuild)
+outbuild/
+_build_out/

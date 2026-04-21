@@ -4,7 +4,6 @@ namespace SimpleYoutubeDownloader;
 
 internal static class Program
 {
-    private static readonly string CookiesFilePath = "cookies.json";
     private static readonly string ConfigFilePath = "appsettings.json";
     public static bool isPrivate;
 
@@ -14,8 +13,17 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
+        try
+        {
+            Directory.SetCurrentDirectory(AppContext.BaseDirectory);
+        }
+        catch
+        {
+            // ignorado
+        }
+
         var builder = new ConfigurationBuilder()
-            .SetBasePath(Directory.GetCurrentDirectory())
+            .SetBasePath(AppContext.BaseDirectory)
             .AddJsonFile(ConfigFilePath, false, true);
         IConfiguration config = builder.Build();
 
@@ -30,15 +38,15 @@ internal static class Program
     {
         try
         {
-            if (isPrivate && File.Exists(CookiesFilePath))
+            if (isPrivate)
             {
-                File.Delete(CookiesFilePath);
-                Console.WriteLine("cookies.json deleted.");
+                YouTubeSessionStore.ClearAllPersistedAndMemory();
+                Console.WriteLine("Sessão YouTube (memória + ficheiros) removida (modo privado).");
             }
         }
-        catch (Exception ex)
+        catch
         {
-            Console.WriteLine($"Error");
+            Console.WriteLine("Error");
         }
     }
 }

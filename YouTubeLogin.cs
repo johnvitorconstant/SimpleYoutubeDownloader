@@ -2,22 +2,32 @@
 using Microsoft.Web.WebView2.WinForms;
 using System.Drawing;
 using System.Net;
-using System.Text.Json;
 using System.Windows.Forms;
 
 namespace SimpleYoutubeDownloader;
 
+/// <summary>Janela com WebView2 para login, verificação manual (captcha, etc.) e gravação da sessão YouTube.</summary>
 public class YouTubeLogin : Form
 {
     private WebView2 webView = null!;
     private TextBox txtUrl = null!;
     private Button btnGo = null!;
     private Button btnSalvar = null!;
-    private static bool IsPrivate;
+    private readonly bool _sessionIsPrivate;
+    private readonly string? _navigateOnLoad;
+    private readonly string _hintText;
+    private readonly string _titleText;
 
-    public YouTubeLogin(bool isPrivate)
+    /// <param name="navigateOnLoad">URL inicial (ex. página do vídeo). Null = página inicial do YouTube.</param>
+    /// <param name="hintText">Texto de ajuda no topo.</param>
+    /// <param name="titleText">Título da janela.</param>
+    public YouTubeLogin(bool isPrivate, string? navigateOnLoad = null, string? hintText = null, string? titleText = null)
     {
-        IsPrivate = isPrivate;
+        _sessionIsPrivate = isPrivate;
+        _navigateOnLoad = string.IsNullOrWhiteSpace(navigateOnLoad) ? null : navigateOnLoad.Trim();
+        _hintText = hintText ??
+                    "Faça login no YouTube abaixo. Depois use «Salvar cookies e fechar» — a sessão fica encriptada na pasta do utilizador (AppData), não na pasta do projeto.";
+        _titleText = titleText ?? "YouTube — sessão manual";
         FormClosing += YouTubeLogin_FormClosing;
         InitializeComponents();
     }
@@ -26,7 +36,7 @@ public class YouTubeLogin : Form
     {
         try
         {
-            if (IsPrivate && webView.CoreWebView2 != null) webView.CoreWebView2.CookieManager.DeleteAllCookies();
+            if (_sessionIsPrivate && webView.CoreWebView2 != null) webView.CoreWebView2.CookieManager.DeleteAllCookies();
         }
         catch
         {
@@ -37,7 +47,7 @@ public class YouTubeLogin : Form
     private async void InitializeComponents()
     {
         UiTheme.StyleForm(this);
-        Text = "Entrar no YouTube";
+        Text = _titleText;
         MinimumSize = new Size(720, 520);
         Size = new Size(880, 640);
         StartPosition = FormStartPosition.CenterParent;
@@ -58,7 +68,7 @@ public class YouTubeLogin : Form
 
         var hint = new Label
         {
-            Text = "Faça login no YouTube abaixo. Em seguida use \"Salvar cookies\" para gravar em cookies.json.",
+            Text = _hintText,
             AutoSize = true,
             MaximumSize = new Size(820, 0),
             Margin = new Padding(0, 0, 0, 10)
@@ -94,7 +104,7 @@ public class YouTubeLogin : Form
         webView = new WebView2 { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 10) };
         webView.BackColor = UiTheme.LogBackground;
 
-        btnSalvar = new Button { Text = "Salvar cookies e fechar" };
+        btnSalvar = new Button { Text = "Salvar cookies e fechar", Enabled = false };
         UiTheme.ApplyBootstrapPrimary(btnSalvar, fillWidth: true);
         btnSalvar.Click += BtnSalvar_Click;
 
@@ -107,7 +117,12 @@ public class YouTubeLogin : Form
 
         await webView.EnsureCoreWebView2Async(null);
         webView.CoreWebView2.NavigationCompleted += WebView_NavigationCompleted;
-        webView.CoreWebView2.Navigate("https://www.youtube.com/");
+
+        var start = _navigateOnLoad ?? "https://www.youtube.com/";
+        txtUrl.Text = start;
+        webView.CoreWebView2.Navigate(start);
+
+        btnSalvar.Enabled = true;
     }
 
     private void WebView_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
@@ -117,21 +132,41 @@ public class YouTubeLogin : Form
 
     private void BtnGo_Click(object? sender, EventArgs e)
     {
-        if (!string.IsNullOrWhiteSpace(txtUrl.Text)) webView.CoreWebView2.Navigate(txtUrl.Text);
+        if (webView.CoreWebView2 != null && !string.IsNullOrWhiteSpace(txtUrl.Text))
+            webView.CoreWebView2.Navigate(txtUrl.Text);
     }
 
     private async void BtnSalvar_Click(object? sender, EventArgs e)
     {
+        if (webView.CoreWebView2 == null)
+        {
+            MessageBox.Show(this, "O browser ainda não está pronto. Aguarde um momento e tente de novo.", "Aguarde",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        btnSalvar.Enabled = false;
         try
         {
             var cookieManager = webView.CoreWebView2.CookieManager;
-            var cookies = await cookieManager.GetCookiesAsync("https://www.youtube.com");
-            var cookieList = cookies.Select(c => new Cookie(c.Name, c.Value, c.Path, c.Domain)).ToList();
+            var cookies = await CollectYoutubeCookiesAsync(cookieManager).ConfigureAwait(true);
+            if (cookies.Count == 0)
+            {
+                MessageBox.Show(this,
+                    "Não foram encontrados cookies do YouTube/Google. Abra youtube.com, inicie sessão se precisar, e volte a premir «Salvar».",
+                    "Sem cookies",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
 
-            var json = JsonSerializer.Serialize(cookieList, new JsonSerializerOptions { WriteIndented = true });
-            await File.WriteAllTextAsync("cookies.json", json);
+            YouTubeSessionStore.SaveProtected(cookies);
 
-            MessageBox.Show(this, "Cookies salvos em cookies.json.", "Concluído", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this,
+                "Sessão guardada de forma encriptada (só esta conta Windows) em:\r\n" + YouTubeSessionStore.EncryptedSessionDirectory,
+                "Concluído",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
             DialogResult = DialogResult.OK;
             Close();
         }
@@ -139,5 +174,42 @@ public class YouTubeLogin : Form
         {
             MessageBox.Show(this, "Erro: " + ex.Message, "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+        finally
+        {
+            btnSalvar.Enabled = true;
+        }
+    }
+
+    /// <summary>O InnerTube precisa de cookies de vários domínios; um único GetCookiesAsync costuma ser incompleto.</summary>
+    private static async Task<List<Cookie>> CollectYoutubeCookiesAsync(CoreWebView2CookieManager manager)
+    {
+        var uris = new[]
+        {
+            "https://www.youtube.com/",
+            "https://youtube.com/",
+            "https://www.google.com/",
+            "https://accounts.google.com/"
+        };
+
+        var byKey = new Dictionary<string, CoreWebView2Cookie>(StringComparer.Ordinal);
+        foreach (var uri in uris)
+        {
+            var batch = await manager.GetCookiesAsync(uri).ConfigureAwait(true);
+            foreach (var c in batch)
+            {
+                var key = (c.Domain ?? "") + "\n" + (c.Path ?? "") + "\n" + (c.Name ?? "");
+                byKey[key] = c;
+            }
+        }
+
+        return byKey.Values.Select(ToNetCookie).ToList();
+    }
+
+    private static Cookie ToNetCookie(CoreWebView2Cookie c)
+    {
+        var path = string.IsNullOrEmpty(c.Path) ? "/" : c.Path;
+        var domain = string.IsNullOrEmpty(c.Domain) ? ".youtube.com" : c.Domain;
+        // Expires omisso: o tipo da propriedade varia entre versões do WebView2; YoutubeExplode usa sobretudo Name/Value/Domain.
+        return new Cookie(c.Name, c.Value, path, domain) { Secure = c.IsSecure, HttpOnly = c.IsHttpOnly };
     }
 }

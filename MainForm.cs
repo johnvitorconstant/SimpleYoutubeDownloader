@@ -1,11 +1,14 @@
 ﻿using System.Diagnostics;
 using System.Drawing;
 using System.Net;
-using System.Text.Json;
+using System.Text;
+using System.Threading;
 using System.Windows.Forms;
 using YoutubeExplode;
-using YoutubeExplode.Common;
 using YoutubeExplode.Converter;
+using YoutubeExplode.Exceptions;
+using YoutubeExplode.Playlists;
+using YoutubeExplode.Videos;
 
 namespace SimpleYoutubeDownloader;
 
@@ -13,6 +16,7 @@ public class MainForm : Form
 {
     public MainForm(bool isPrivate)
     {
+        AppFileLogger.EnsureInitialized();
         InitializeComponents(isPrivate);
         try
         {
@@ -21,7 +25,7 @@ public class MainForm : Form
         }
         catch (Exception ex)
         {
-            Log($"{ex.Message}");
+            Log($"{ex.Message}", ex);
         }
     }
 
@@ -193,7 +197,7 @@ public class MainForm : Form
         UiTheme.ApplyBootstrapOutlineDanger(_btnCancelar, toolbarBg);
         _btnCancelar.Click += BtnCancel_Click;
 
-        var btnLogin = new Button { Text = "Entrar no YouTube" };
+        var btnLogin = new Button { Text = "YouTube (login / verificação)" };
         UiTheme.ApplyBootstrapOutlineSecondary(btnLogin, toolbarBg);
         btnLogin.Click += BtnLogin_Click;
 
@@ -287,6 +291,12 @@ public class MainForm : Form
 
     private CancellationTokenSource _cancellationTokenSource = new();
 
+    /// <summary>Contagem de falhas <see cref="VideoUnavailableException"/> no último lote (para oferecer janela manual).</summary>
+    private int _videoUnavailableHits;
+
+    /// <summary>Contagem de falhas HTTP 400/401 do InnerTube no último lote (bloqueio/limitação da biblioteca).</summary>
+    private int _httpBlockedHits;
+
     private int _processed;
     private int _skipped;
     private int _error;
@@ -318,24 +328,59 @@ public class MainForm : Form
         }
         catch (Exception ex)
         {
-            Log(ex.Message);
+            Log(ex.Message, ex);
         }
     }
 
-    private void BtnLogin_Click(object sender, EventArgs e)
+    private void BtnLogin_Click(object? sender, EventArgs e) => OpenYouTubeManualSession();
+
+    /// <summary>Abre WebView2: login, verificação manual, etc.; grava sessão encriptada em AppData e em memória.</summary>
+    private void OpenYouTubeManualSession()
     {
-        Console.WriteLine(_isPrivate);
-        using (var loginForm = new YouTubeLogin(_isPrivate))
+        var startUrl = GetFirstYouTubeUrlFromInput() ?? "https://www.youtube.com/";
+        var hint =
+            "Use esta janela para o que o YouTube pedir: iniciar sessão, verificação (captcha), aceitar avisos ou abrir o vídeo. " +
+            "Quando estiver pronto, use «Salvar cookies e fechar» e volte a premir «Baixar».";
+        using var loginForm = new YouTubeLogin(
+            _isPrivate,
+            navigateOnLoad: startUrl,
+            hintText: hint,
+            titleText: "YouTube — resolução manual");
+        if (loginForm.ShowDialog() == DialogResult.OK)
+            Log("Sessão YouTube guardada (AppData encriptada + memória). Pode tentar «Baixar» de novo.");
+    }
+
+    private string? GetFirstYouTubeUrlFromInput()
+    {
+        if (_txtInput == null) return null;
+        var line = _txtInput.Text
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.Trim())
+            .FirstOrDefault(s => s.Length > 0);
+        if (line == null) return null;
+        line = line.Replace("https://youtu.be/", "https://www.youtube.com/watch?v=", StringComparison.Ordinal);
+        if (line.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) ||
+            line.Contains("youtu.be", StringComparison.OrdinalIgnoreCase))
+            return line;
+        return null;
+    }
+
+    private void NoteVideoUnavailable(Exception ex)
+    {
+        for (Exception? e = ex; e != null; e = e.InnerException)
         {
-            if (loginForm.ShowDialog() == DialogResult.OK)
+            if (e is VideoUnavailableException)
             {
-                Log("Cookies saved on 'cookies.json'.");
-            }
-            else
-            {
-                //Log("Login cancelado ou não realizado.");
+                Interlocked.Increment(ref _videoUnavailableHits);
+                return;
             }
         }
+    }
+
+    private void NoteHttpBlocked(Exception ex)
+    {
+        if (MayRetryWithoutSessionCookies(ex))
+            Interlocked.Increment(ref _httpBlockedHits);
     }
 
     private void BtnCancel_Click(object sender, EventArgs e)
@@ -369,7 +414,8 @@ public class MainForm : Form
             _error = 0;
 
             _txtLog.Clear();
-
+            Interlocked.Exchange(ref _videoUnavailableHits, 0);
+            Interlocked.Exchange(ref _httpBlockedHits, 0);
 
             var semaphore = new SemaphoreSlim(decimal.ToInt32(_downloadsNumber.Value));
 
@@ -381,15 +427,45 @@ public class MainForm : Form
                 return;
             }
 
-            YoutubeClient youtube;
-            {
-                youtube = new YoutubeClient();
-            }
+            Log($"Início do lote: {urls.Length} URL(s), formato={fileType}, paralelo={_downloadsNumber!.Value}, pasta={Path.GetFullPath(DownloadFolder)}");
 
-            var tasks = urls.Select(url => ProcessUrlAsync(youtube, url, fileType, cancellationToken, semaphore))
+            var (youtube, usingCookies, loadedCookies) = await CreateYoutubeClientAsync(cancellationToken);
+            Log(usingCookies
+                ? "YouTube: sessão guardada (memória ou ficheiro encriptado em AppData; ver pasta em «Entrar no YouTube»)."
+                : HasLegacyPlainCookiesHint()
+                    ? "YouTube: cookies.json legado ao lado do .exe está vazio ou inválido; a pedir como anónimo."
+                    : "YouTube: sem sessão guardada. Se o YouTube bloquear pedidos anónimos, use «Entrar no YouTube» e guarde os cookies.");
+            if (usingCookies)
+                Log(YouTubeSessionStore.Summarize(loadedCookies));
+
+            var tasks = urls.Select(url =>
+                    ProcessUrlAsync(youtube, usingCookies, url, fileType, cancellationToken, semaphore))
                 .ToArray();
             await Task.WhenAll(tasks);
             _btnDownload.Enabled = true;
+
+            var vuHits = Interlocked.Exchange(ref _videoUnavailableHits, 0);
+            var blockedHits = Interlocked.Exchange(ref _httpBlockedHits, 0);
+
+            if (blockedHits > 0)
+            {
+                Log(FormatYouTubeBlockedExplanation(blockedHits, usingCookies));
+            }
+            else if (vuHits > 0)
+            {
+                Log($"Aviso: {vuHits} falha(s) com «vídeo não disponível» (muitas vezes bloqueio/verificação do YouTube).");
+                var open = MessageBox.Show(
+                    this,
+                    "O YouTube pode estar a pedir verificação ou sessão (sem sessão o pedido parece um bot).\r\n\r\n" +
+                    "Quer abrir o browser integrado para resolver manualmente e gravar a sessão?\r\n\r\n" +
+                    "Depois use outra vez «Baixar».",
+                    "YouTube — verificação manual",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question,
+                    MessageBoxDefaultButton.Button1);
+                if (open == DialogResult.Yes)
+                    OpenYouTubeManualSession();
+            }
 
             Log("Download(s) finalizado(s).");
             Log($"Completed: {_processed}");
@@ -402,11 +478,20 @@ public class MainForm : Form
         }
         catch (Exception ex)
         {
-            Log($"{ex.Message}");
+            Log($"{ex.Message}", ex);
         }
     }
 
-    private async Task ProcessUrlAsync(YoutubeClient youtube, string url, string fileType,
+    private static async Task<IReadOnlyList<PlaylistVideo>> MaterializePlaylistAsync(YoutubeClient client, string url,
+        CancellationToken cancellationToken)
+    {
+        var list = new List<PlaylistVideo>();
+        await foreach (var video in client.Playlists.GetVideosAsync(url, cancellationToken))
+            list.Add(video);
+        return list;
+    }
+
+    private async Task ProcessUrlAsync(YoutubeClient youtube, bool batchUsingCookies, string url, string fileType,
         CancellationToken cancellationToken, SemaphoreSlim semaphore)
     {
         url = url.Replace("https://youtu.be/", "https://www.youtube.com/watch?v=");
@@ -418,38 +503,64 @@ public class MainForm : Form
 
             if (IsPlaylistUrl(url))
             {
-                IReadOnlyList<YoutubeExplode.Playlists.PlaylistVideo> videos;
-                if (File.Exists("cookies.json"))
+                IReadOnlyList<PlaylistVideo> videos;
+                YoutubeClient listClient;
+                bool allowDownload400Fallback;
+
+                if (batchUsingCookies)
                 {
-                    var json = await File.ReadAllTextAsync("cookies.json", cancellationToken);
-                    List<Cookie>? cookies = JsonSerializer.Deserialize<List<Cookie>>(json);
-                    Debug.Assert(cookies != null, nameof(cookies) + " != null");
-                    var youtubeWCookies = new YoutubeClient(cookies);
-                    videos = await youtubeWCookies.Playlists.GetVideosAsync(url, cancellationToken);
+                    try
+                    {
+                        listClient = youtube;
+                        videos = await MaterializePlaylistAsync(listClient, url, cancellationToken);
+                        allowDownload400Fallback = true;
+                    }
+                    catch (Exception ex) when (MayRetryWithoutSessionCookies(ex))
+                    {
+                        Log("HTTP 400 ou 401 ao ler playlist com cookies. A tentar lista sem sessão…");
+                        listClient = new YoutubeClient();
+                        videos = await MaterializePlaylistAsync(listClient, url, cancellationToken);
+                        allowDownload400Fallback = false;
+                    }
                 }
                 else
                 {
-                    videos = await youtube.Playlists.GetVideosAsync(url, cancellationToken);
+                    listClient = youtube;
+                    videos = await MaterializePlaylistAsync(listClient, url, cancellationToken);
+                    allowDownload400Fallback = false;
                 }
 
+                Log($"Playlist: {url} ({videos.Count} vídeo(s))");
 
-                Log($"Processing playlist: {url}");
-
-
-                // Processa cada vídeo da playlist (em paralelo)
                 var videoTasks = videos.Select(video =>
-                    DownloadVideoOrAudioAsync(youtube, video.Title, video.Url, fileType, cancellationToken, semaphore));
+                    DownloadVideoOrAudioAsync(listClient, allowDownload400Fallback, video.Title, video.Url, fileType,
+                        cancellationToken, semaphore));
                 await Task.WhenAll(videoTasks);
             }
             else
             {
-                var video = await youtube.Videos.GetAsync(url);
-                await DownloadVideoOrAudioAsync(youtube, video.Title, url, fileType, cancellationToken, semaphore);
+                Video video;
+                YoutubeClient downloadClient = youtube;
+                try
+                {
+                    video = await youtube.Videos.GetAsync(url, cancellationToken);
+                }
+                catch (Exception ex) when (batchUsingCookies && MayRetryWithoutSessionCookies(ex))
+                {
+                    Log("HTTP 400 ou 401 ao obter metadados com cookies. A tentar sem sessão…");
+                    downloadClient = new YoutubeClient();
+                    video = await downloadClient.Videos.GetAsync(url, cancellationToken);
+                }
+
+                await DownloadVideoOrAudioAsync(downloadClient, downloadClient == youtube && batchUsingCookies,
+                    video.Title, url, fileType, cancellationToken, semaphore);
             }
         }
         catch (Exception ex)
         {
-            Log($"Processing error {url}: {ex.Message}");
+            NoteVideoUnavailable(ex);
+            NoteHttpBlocked(ex);
+            Log(FormatProcessUrlError(url, ex), ex);
             _error++;
         }
         finally
@@ -458,8 +569,71 @@ public class MainForm : Form
         }
     }
 
-    private async Task DownloadVideoOrAudioAsync(YoutubeClient youtube, string videoTitle, string url, string fileExt,
-        CancellationToken cancellationToken, SemaphoreSlim semaphore)
+    private static string VideoUnavailableExtraHint(Exception ex) =>
+        ex is VideoUnavailableException
+            ? Environment.NewLine +
+              "Nota (YoutubeExplode): «não disponível» costuma aparecer quando a página deixa de expor metadados (bloqueio a pedidos anónimos/bots, idade, região, membros, etc.). " +
+              "Se o vídeo abre no browser, use «Entrar no YouTube» para gravar a sessão, ou outra rede/IP."
+            : "";
+
+    /// <summary>
+    /// Com cookies, o YouTube / InnerTube pode responder 400 (pedido «player») ou 401 (sessão inválida ou recusada).
+    /// Para vídeos públicos, repetir sem cookies costuma funcionar.
+    /// </summary>
+    private static bool MayRetryWithoutSessionCookies(Exception ex)
+    {
+        for (Exception? e = ex; e != null; e = e.InnerException)
+        {
+            if (e is HttpRequestException hre &&
+                hre.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string FormatYouTubeBlockedExplanation(int failures, bool usingCookies)
+    {
+        var sb = new StringBuilder();
+        sb.Append("Aviso: ").Append(failures).AppendLine(" falha(s) HTTP 400/401 no endpoint interno do YouTube (VideoController.GetPlayerResponseAsync).");
+        sb.AppendLine("Causa provável: o YouTube mudou o protocolo InnerTube e a versão atual de YoutubeExplode (6.5.7) ainda não acompanha essa mudança.");
+        sb.Append("Estado da sessão: ")
+          .AppendLine(usingCookies
+              ? "cookies completos — o problema NÃO é falta de login."
+              : "sem cookies — mesmo assim, o YouTube costuma exigir sessão para estes pedidos.");
+        sb.AppendLine("O que fazer:");
+        sb.AppendLine("  • Tentar de novo daqui a alguns minutos/horas (bloqueios costumam ser temporários).");
+        sb.AppendLine("  • Vigiar uma nova versão de YoutubeExplode (ver github.com/Tyrrrz/YoutubeExplode/issues/852 e 781).");
+        sb.Append("  • Se for urgente, considerar usar yt-dlp externamente enquanto a biblioteca não é corrigida.");
+        return sb.ToString();
+    }
+
+    private static string FormatProcessUrlError(string url, Exception ex) =>
+        $"Erro ao processar URL: {url} — {ex.Message}{VideoUnavailableExtraHint(ex)}";
+
+    private static bool HasLegacyPlainCookiesHint() =>
+        File.Exists(Path.Combine(AppContext.BaseDirectory, "cookies.json"));
+
+    private static async Task<(YoutubeClient Client, bool UsingCookies, IReadOnlyList<Cookie> Cookies)>
+        CreateYoutubeClientAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var (cookies, ok) = await YouTubeSessionStore.TryLoadForYoutubeClientAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (ok && cookies.Count > 0)
+                return (new YoutubeClient(cookies), true, cookies);
+        }
+        catch (Exception ex)
+        {
+            AppFileLogger.Write("Falha ao preparar cliente YouTube com sessão.", ex);
+        }
+
+        return (new YoutubeClient(), false, Array.Empty<Cookie>());
+    }
+
+    private async Task DownloadVideoOrAudioAsync(YoutubeClient youtube, bool batchUsingCookies, string videoTitle,
+        string url, string fileExt, CancellationToken cancellationToken, SemaphoreSlim semaphore)
     {
         try
         {
@@ -471,26 +645,29 @@ public class MainForm : Form
             var outputPath = Path.Combine(DownloadFolder, $"{safeTitle}.{fileExt}");
             if (File.Exists(outputPath))
             {
-                Log("Skipped: " + videoTitle + ", file already exists");
+                Log($"Ignorado (ficheiro já existe): {videoTitle} → {outputPath}");
                 _skipped++;
                 return;
             }
 
-            Log("Started: " + videoTitle);
+            Log($"Início: {videoTitle} | URL: {url} | Saída: {outputPath}");
             var beforeTimer = watch.ElapsedMilliseconds;
             await youtube.Videos.DownloadAsync(url, outputPath, o => o
                 .SetPreset(ConversionPreset.UltraFast)
                 .SetFFmpegPath("ffmpeg.exe"), null, cancellationToken);
+
             var afterTimer = watch.ElapsedMilliseconds;
-            Log($"{(decimal)(afterTimer - beforeTimer) / 1000}s: {videoTitle} completed");
+            Log($"{(decimal)(afterTimer - beforeTimer) / 1000}s: {videoTitle} concluído");
             _processed++;
         }
         catch (Exception ex)
         {
-            Log("Error: " + videoTitle);
-
+            NoteVideoUnavailable(ex);
+            NoteHttpBlocked(ex);
+            Log(
+                $"Erro ao baixar: {videoTitle} | URL: {url} — {ex.Message}{VideoUnavailableExtraHint(ex)}",
+                ex);
             _error++;
-            Log(ex.Message);
         }
         finally
         {
@@ -534,11 +711,61 @@ public class MainForm : Form
         return title;
     }
 
-    private void Log(string message)
+    private void Log(string message, Exception? exceptionForFileOnly = null)
     {
+        AppFileLogger.Write(message, exceptionForFileOnly);
+
+        if (_txtLog == null) return;
+
+        var uiLine = exceptionForFileOnly == null
+            ? message + Environment.NewLine
+            : message + Environment.NewLine + FormatExceptionForUi(exceptionForFileOnly) + Environment.NewLine;
+
         if (_txtLog.InvokeRequired)
-            _txtLog.BeginInvoke((MethodInvoker)delegate { _txtLog.AppendText(message + Environment.NewLine); });
+            _txtLog.BeginInvoke((MethodInvoker)delegate { _txtLog.AppendText(uiLine); });
         else
-            _txtLog.AppendText(message + Environment.NewLine);
+            _txtLog.AppendText(uiLine);
+    }
+
+    /// <summary>Chain completa (tipos + mensagens) + 1ª linha do stack de cada nível que ajuda a localizar o método interno (ex.: VideoController.GetPlayerResponseAsync).</summary>
+    private static string FormatExceptionForUi(Exception ex)
+    {
+        var sb = new StringBuilder();
+        var depth = 0;
+        for (Exception? e = ex; e != null && depth < 6; e = e.InnerException, depth++)
+        {
+            sb.Append(new string(' ', depth * 2));
+            sb.Append("↳ ").Append(e.GetType().Name).Append(": ").Append(e.Message);
+
+            if (e is HttpRequestException hre && hre.StatusCode.HasValue)
+                sb.Append(" [HTTP ").Append((int)hre.StatusCode.Value).Append(']');
+
+            var frame = FirstRelevantStackFrame(e.StackTrace);
+            if (frame is not null)
+            {
+                sb.AppendLine();
+                sb.Append(new string(' ', depth * 2)).Append("   at ").Append(frame);
+            }
+
+            sb.AppendLine();
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string? FirstRelevantStackFrame(string? stackTrace)
+    {
+        if (string.IsNullOrEmpty(stackTrace)) return null;
+        foreach (var raw in stackTrace.Split('\n'))
+        {
+            var line = raw.TrimStart().TrimStart("at ".ToCharArray()).TrimEnd('\r');
+            if (line.Length == 0) continue;
+            if (line.StartsWith("YoutubeExplode", StringComparison.Ordinal) ||
+                line.StartsWith("SimpleYoutubeDownloader", StringComparison.Ordinal))
+                return line;
+        }
+
+        var first = stackTrace.Split('\n').FirstOrDefault();
+        return first?.TrimStart().TrimStart("at ".ToCharArray()).TrimEnd('\r');
     }
 }
